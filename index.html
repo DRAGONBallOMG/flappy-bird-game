@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Flappy Ball</title>
+<style>
+html,body{
+  margin:0;
+  padding:0;
+  width:100%;
+  height:100%;
+  background:#000;
+  font-family:Arial;
+  touch-action:manipulation;
+  overflow:hidden;
+}
+canvas{ display:block; }
+
+.screen{
+  position:fixed;
+  inset:0;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:14px;
+}
+.hidden{ display:none; }
+
+button{
+  font-size:20px;
+  padding:12px 30px;
+  border:none;
+  border-radius:12px;
+}
+ol{
+  max-height:60vh;
+  overflow:auto;
+  background:#0005;
+  padding:15px;
+  border-radius:10px;
+  width:70%;
+}
+</style>
+</head>
+<body>
+
+<!-- MENU -->
+<div id="menu" class="screen">
+  <h1>FLAPPY BALL</h1>
+  <button onclick="startGame()">▶ START</button>
+  <button onclick="openSettings()">⚙ SETTINGS</button>
+  <button onclick="showLeaderboard()">🏆 LEADERBOARD</button>
+</div>
+
+<!-- SETTINGS -->
+<div id="settings" class="screen hidden">
+  <h2>SETTINGS</h2>
+
+  <button onclick="setColor('#2da8ff')">🔵 Blue</button>
+  <button onclick="setColor('#ff4d4d')">🔴 Red</button>
+  <button onclick="setColor('#4dff88')">🟢 Green</button>
+
+  <label>
+    <input type="checkbox" onchange="toggleSound()">
+    🔊 Sound
+  </label>
+
+  <label>
+    <input type="checkbox" onchange="hardMode=this.checked">
+    😈 Hard Mode
+  </label>
+
+  <label>
+    <input type="checkbox" onchange="toggleNight(this.checked)">
+    🌙 Night Mode
+  </label>
+
+  <button onclick="backMenu()">⬅ BACK</button>
+</div>
+
+<!-- LEADERBOARD -->
+<div id="leaderboard" class="screen hidden">
+  <h2>🏆 TOP 100</h2>
+  <ol id="board"></ol>
+  <button onclick="backMenu()">⬅ BACK</button>
+</div>
+
+<canvas id="game"></canvas>
+
+<script>
+// ---------- Canvas ----------
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+function resize(){
+  const r = devicePixelRatio || 1;
+  canvas.width = innerWidth * r;
+  canvas.height = innerHeight * r;
+  canvas.style.width = innerWidth+"px";
+  canvas.style.height = innerHeight+"px";
+  ctx.setTransform(r,0,0,r,0,0);
+}
+addEventListener("resize",resize);
+resize();
+
+// ---------- Save / Load ----------
+const save=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
+const load=(k,d)=>JSON.parse(localStorage.getItem(k)) ?? d;
+
+// ---------- Settings ----------
+let birdColor = load("birdColor","#2da8ff");
+let soundOn = load("sound",true);
+let bestScore = load("best",0);
+let nightMode = load("night",false);
+let hardMode = false;
+
+// ---------- Sound (beep) ----------
+function beep(f=600){
+  if(!soundOn) return;
+  const a=new AudioContext();
+  const o=a.createOscillator();
+  o.frequency.value=f;
+  o.connect(a.destination);
+  o.start();
+  o.stop(a.currentTime+0.08);
+}
+
+// ---------- UI ----------
+const menu = document.getElementById("menu");
+const settings = document.getElementById("settings");
+const leaderboard = document.getElementById("leaderboard");
+
+// ---------- Game ----------
+let bird, pipes, score, speed, gameOver=false, shake=0;
+
+function resetGame(){
+  bird={x:80,y:innerHeight/2,r:16,vy:0};
+  pipes=[];
+  score=0;
+  speed=2;
+  gameOver=false;
+}
+
+function startGame(){
+  hideAll();
+  resetGame();
+  loop();
+}
+function openSettings(){ hideAll(); settings.classList.remove("hidden"); }
+function showLeaderboard(){
+  hideAll();
+  leaderboard.classList.remove("hidden");
+  const board=document.getElementById("board");
+  board.innerHTML="";
+  for(let i=1;i<=20;i++){
+    const li=document.createElement("li");
+    li.textContent=`#${i} Player${i} - ${200-i}`;
+    board.appendChild(li);
+  }
+}
+function backMenu(){ hideAll(); menu.classList.remove("hidden"); }
+function hideAll(){
+  menu.classList.add("hidden");
+  settings.classList.add("hidden");
+  leaderboard.classList.add("hidden");
+}
+
+// ---------- Settings handlers ----------
+function setColor(c){ birdColor=c; save("birdColor",c); }
+function toggleSound(){ soundOn=!soundOn; save("sound",soundOn); }
+function toggleNight(v){ nightMode=v; save("night",v); }
+
+// ---------- Controls ----------
+addEventListener("click",jump);
+addEventListener("touchstart",jump);
+function jump(){
+  if(!gameOver){
+    bird.vy=-10.5;
+    shake=8;
+    beep(700);
+  }
+}
+
+// ---------- Pipes ----------
+function addPipe(){
+  const gap=150;
+  const top=Math.random()*(innerHeight-300)+50;
+  pipes.push({x:innerWidth,top,bottom:top+gap,passed:false});
+}
+setInterval(()=>{ if(!gameOver) addPipe(); },1500);
+
+// ---------- Draw Bird ----------
+function drawBird(){
+  ctx.beginPath();
+  ctx.arc(bird.x+3,bird.y+3,bird.r,0,Math.PI*2);
+  ctx.fillStyle="rgba(0,0,0,0.25)";
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(bird.x,bird.y,bird.r,0,Math.PI*2);
+  ctx.fillStyle=birdColor;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(bird.x-3,bird.y+3,bird.r*0.7,0,Math.PI*2);
+  ctx.fillStyle="#fff";
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(bird.x+6,bird.y-3,3.5,0,Math.PI*2);
+  ctx.fillStyle="#000";
+  ctx.fill();
+
+  ctx.fillStyle="#ffcc00";
+  ctx.fillRect(bird.x+12,bird.y-2,8,4);
+}
+
+// ---------- Game Loop ----------
+function loop(){
+  ctx.save();
+  if(shake>0){
+    ctx.translate((Math.random()-0.5)*shake,(Math.random()-0.5)*shake);
+    shake*=0.85;
+  }
+
+  ctx.fillStyle = nightMode ? "#0b1020" : "#70c5ce";
+  ctx.fillRect(0,0,innerWidth,innerHeight);
+
+  bird.vy+=0.6;
+  bird.y+=bird.vy;
+
+  drawBird();
+
+  pipes.forEach(p=>{
+    p.x-=speed;
+    ctx.fillStyle="green";
+    ctx.fillRect(p.x,0,50,p.top);
+    ctx.fillRect(p.x,p.bottom,50,innerHeight);
+
+    if(
+      bird.x+bird.r>p.x &&
+      bird.x-bird.r<p.x+50 &&
+      (bird.y-bird.r<p.top || bird.y+bird.r>p.bottom)
+    ) endGame();
+
+    if(!p.passed && p.x+50<bird.x){
+      score++; p.passed=true;
+    }
+  });
+  pipes=pipes.filter(p=>p.x>-60);
+
+  if(hardMode){
+    speed=2+score*0.05;
+    bird.r=Math.max(8,16-score*0.2);
+  }
+
+  if(bird.y>innerHeight || bird.y<0) endGame();
+
+  ctx.fillStyle="#fff";
+  ctx.font="22px Arial";
+  ctx.fillText("Score: "+score,20,40);
+  ctx.fillText("Best: "+bestScore,20,70);
+
+  ctx.restore();
+
+  if(!gameOver) requestAnimationFrame(loop);
+}
+
+// ---------- End ----------
+function endGame(){
+  if(gameOver) return;
+  gameOver=true;
+  shake=20;
+  beep(200);
+
+  if(score>bestScore){
+    bestScore=score;
+    save("best",bestScore);
+  }
+  setTimeout(()=>menu.classList.remove("hidden"),1200);
+}
+</script>
+
+</body>
+</html>
